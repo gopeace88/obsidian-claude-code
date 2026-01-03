@@ -133,7 +133,7 @@ Add action buttons to messages.
 - Add to note
 
 #### Response Streaming Improvements
-**Status**: Planned
+**Status**: Partially Implemented
 **Complexity**: Medium
 **Impact**: Medium
 
@@ -144,7 +144,7 @@ Enhance the streaming experience.
 - Progress bar for long operations
 - Estimated time remaining
 - Partial results display
-- Better cancellation (show what was generated)
+- ~~Better cancellation (show what was generated)~~ **DONE** - Background streaming continues when switching conversations, response saved when complete
 
 #### Keyboard Navigation
 **Status**: Planned
@@ -185,18 +185,26 @@ Speech-to-text for hands-free interaction.
 - Background noise handling
 
 #### Split View Mode
-**Status**: Idea
+**Status**: Implemented
 **Complexity**: High
 **Impact**: Medium
 
 Chat alongside editor in configurable layouts.
 
 **Layouts:**
-- Side by side (current)
-- Chat below editor
-- Floating chat window
+- ~~Side by side (current)~~ **DONE**
+- ~~Chat below editor~~ **DONE** - Split down option
+- ~~Floating chat window~~ **DONE** - New tab option
 - Full-screen chat mode
 - Pop-out to separate window
+
+**Implemented features:**
+- Multiple chat windows (up to 5)
+- Split right / split down / new tab modes
+- Each window has independent conversation state
+- Conversation picker dropdown in header
+- Background streaming when switching conversations
+- Close button for split windows
 
 #### Themes & Customization
 **Status**: Idea

@@ -57,7 +57,7 @@ Key responsibilities:
 
 ### ChatView
 
-The primary interface (`src/views/ChatView.ts`) extends Obsidian's `ItemView` to render in the right sidebar. It instantiates the agent controller and conversation manager, wiring them together during initialization.
+The primary interface (`src/views/ChatView.ts`) extends Obsidian's `ItemView` to render in the right sidebar. It instantiates the agent controller and conversation manager, wiring them together during initialization. Multiple chat windows can be open simultaneously, each with independent state.
 
 ```mermaid
 classDiagram
@@ -66,10 +66,12 @@ classDiagram
         -conversationManager: ConversationManager
         -messageList: MessageList
         -chatInput: ChatInput
+        -activeStreamConversationId: string
         +onOpen()
         +onClose()
         +handleSendMessage(content)
         +startNewConversation()
+        +loadConversation(id)
     }
 
     class MessageList {
@@ -175,7 +177,14 @@ Each tool is defined with:
 
 ### ConversationManager
 
-Persistence layer (`src/agent/ConversationManager.ts`) stores conversation metadata and message history. The data model separates a lightweight index from full message payloads:
+Persistence layer (`src/agent/ConversationManager.ts`) stores conversation metadata and message history. The data model separates a lightweight index from full message payloads.
+
+Key capabilities:
+- `addMessage()` - Add message to current conversation
+- `addMessageToConversation(id, message)` - Add message to specific conversation by ID (enables background streaming)
+- `loadConversation(id)` - Load and switch to a conversation
+- `loadConversationById(id)` - Load without switching (for background saves)
+- Session ID tracking for SDK resumption
 
 ```mermaid
 erDiagram
@@ -315,6 +324,45 @@ sequenceDiagram
     AgentController->>SDK: query({ resume: sessionId })
     SDK-->>AgentController: Continues with full context
 ```
+
+### Background Streaming
+
+When the user switches conversations while Claude is responding, the stream continues in the background rather than being cancelled. This enables smooth multi-tasking without losing partial responses.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ChatView
+    participant AgentController
+    participant ConversationManager
+
+    User->>ChatView: Send message to Conv A
+    ChatView->>ChatView: activeStreamConversationId = A
+    ChatView->>AgentController: sendMessage()
+
+    Note over AgentController: Stream starts
+
+    User->>ChatView: Switch to Conv B
+    ChatView->>ConversationManager: loadConversation(B)
+    Note over ChatView: UI now shows Conv B<br/>Stream continues in background
+
+    AgentController-->>ChatView: Stream events
+    Note over ChatView: Check activeStreamConversationId<br/>Conv A ≠ current Conv B<br/>Skip UI update
+
+    AgentController-->>ChatView: Stream complete
+    ChatView->>ConversationManager: addMessageToConversation(A, response)
+    Note over ConversationManager: Save to Conv A (not current)
+
+    User->>ChatView: Switch back to Conv A
+    ChatView->>ConversationManager: loadConversation(A)
+    Note over ChatView: Response is there!
+```
+
+Key implementation details:
+- `activeStreamConversationId` tracks which conversation owns the running stream
+- UI event handlers check this before updating (skip if viewing different conversation)
+- `addMessageToConversation(id, message)` saves to specific conversation by ID
+- Switching conversations clears UI streaming state but doesn't cancel the actual stream
 
 ## Extension Points
 
