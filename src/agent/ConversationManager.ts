@@ -71,13 +71,14 @@ export class ConversationManager {
     const indexPath = `${STORAGE_DIR}/${CONVERSATIONS_FILE}`;
 
     try {
-      const file = vault.getAbstractFileByPath(indexPath);
-      if (file) {
-        const content = await vault.read(file as any);
+      // Use adapter.read() directly to avoid Obsidian's file cache issues.
+      const exists = await vault.adapter.exists(indexPath);
+      if (exists) {
+        const content = await vault.adapter.read(indexPath);
         this.index = JSON.parse(content);
       }
     } catch (error) {
-      console.error("Failed to load conversation index:", error);
+      logger.error("ConversationManager", "Failed to load conversation index", { error: String(error) });
       this.index = { conversations: [], activeConversationId: null };
     }
   }
@@ -147,17 +148,21 @@ export class ConversationManager {
     const path = `${STORAGE_DIR}/${HISTORY_DIR}/${id}.json`;
 
     try {
-      const file = vault.getAbstractFileByPath(path);
-      if (!file) return null;
+      // Use adapter.read() directly to avoid Obsidian's file cache issues.
+      const exists = await vault.adapter.exists(path);
+      if (!exists) {
+        logger.error("ConversationManager", "Conversation file not found", { path });
+        return null;
+      }
 
-      const content = await vault.read(file as any);
+      const content = await vault.adapter.read(path);
       const conversation = JSON.parse(content) as StoredConversation;
       this.currentConversation = conversation;
       this.index.activeConversationId = id;
       await this.saveIndex();
       return conversation;
     } catch (error) {
-      console.error("Failed to load conversation:", error);
+      logger.error("ConversationManager", "Failed to load conversation", { error: String(error), path });
       return null;
     }
   }

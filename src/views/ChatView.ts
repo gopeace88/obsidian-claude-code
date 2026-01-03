@@ -197,6 +197,22 @@ export class ChatView extends ItemView {
       (this.app as any).setting.open();
       (this.app as any).setting.openTabById("obsidian-claude-code");
     });
+
+    // Close window button (only show if more than one window).
+    const windowCount = this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE).length;
+    if (windowCount > 1) {
+      const closeButton = actionsEl.createEl("button", {
+        attr: { "aria-label": "Close Window" },
+        cls: "claude-code-close-btn",
+      });
+      setIcon(closeButton, "x");
+      closeButton.addEventListener("click", () => this.closeThisWindow());
+    }
+  }
+
+  private closeThisWindow() {
+    // Detach this leaf to close the window.
+    this.leaf.detach();
   }
 
   private showNewWindowMenu(e: MouseEvent) {
