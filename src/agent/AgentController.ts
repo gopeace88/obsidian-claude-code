@@ -190,13 +190,13 @@ export class AgentController {
             }
           }
 
-          // Emit streaming update.
+          // Emit streaming update. Use spread to avoid shared reference issues.
           this.events.onMessage?.({
             id: messageId,
             role: "assistant",
             content: finalContent,
             timestamp: Date.now(),
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined,
             isStreaming: true,
           });
         } else if (message.type === "result") {

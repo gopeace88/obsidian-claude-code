@@ -294,9 +294,13 @@ export class ChatView extends ItemView {
         if (!this.messages[index].toolCalls) {
           this.messages[index].toolCalls = [];
         }
-        this.messages[index].toolCalls!.push(toolCall);
-        this.messageList.render(this.messages);
-        this.scrollToBottom();
+        // Deduplicate: only add if not already present (prevents double-add from shared references).
+        const existing = this.messages[index].toolCalls!.find((t) => t.id === toolCall.id);
+        if (!existing) {
+          this.messages[index].toolCalls!.push(toolCall);
+          this.messageList.render(this.messages);
+          this.scrollToBottom();
+        }
       }
     }
   }
