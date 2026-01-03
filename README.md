@@ -6,6 +6,8 @@ A native Obsidian plugin that embeds Claude as an AI assistant directly within y
 
 obsidian-claude-code transforms Obsidian into an AI-augmented knowledge environment. Claude can read, search, and modify your notes while maintaining conversation context across sessions. The implementation uses the Claude Agent SDK with streaming responses, built-in tool presets, and automatic skill loading from your vault's `.claude/skills/` directory.
 
+![Chat interface showing Claude searching vault for saxophone practice notes](docs/images/chat-interface.png)
+
 This is a desktop-only plugin. The Claude Agent SDK requires Node.js runtime, which is available in Obsidian's Electron environment but not on mobile platforms.
 
 ## Installation
@@ -70,6 +72,8 @@ Click the chat icon in the ribbon or use `Cmd+Shift+C` to toggle the sidebar. Th
 - `/search` initiates vault search
 
 **Tool Execution**: Claude can execute tools to interact with your vault. Tool calls appear as collapsible blocks showing the operation and result. Write operations display a permission modal unless auto-approve is enabled.
+
+![Permission modal for tool approval](docs/images/permission-modal.png)
 
 ## Architecture
 
