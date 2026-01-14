@@ -244,43 +244,76 @@ describe("Sidebar Toggle Logic", () => {
 });
 
 describe("Layout Ready Behavior", () => {
-  it("should not force reveal when layout is restored", () => {
-    // The new behavior: just log, don't call activateChatView().
+  it("should not force reveal when layout is restored with existing leaf", () => {
+    // When a leaf exists, we just log - don't force reveal.
     const revealLeaf = vi.fn();
+    const activateChatView = vi.fn();
     const existingLeaf = new MockWorkspaceLeaf();
 
-    // Old behavior would have called revealLeaf.
-    // New behavior: just check if leaf exists, don't reveal.
-    const onLayoutReady = (getExistingLeaf: () => MockWorkspaceLeaf | null) => {
+    const onLayoutReady = (
+      getExistingLeaf: () => MockWorkspaceLeaf | null,
+      activate: () => void
+    ) => {
       const leaf = getExistingLeaf();
       if (leaf) {
         // Just log, don't reveal.
-        // logger.debug("Plugin", "Chat view restored from workspace layout");
+      } else {
+        // No existing view - create one.
+        activate();
       }
     };
 
-    onLayoutReady(() => existingLeaf);
+    onLayoutReady(() => existingLeaf, activateChatView);
 
     // revealLeaf should NOT have been called.
     expect(revealLeaf).not.toHaveBeenCalled();
+    // activateChatView should NOT have been called (leaf exists).
+    expect(activateChatView).not.toHaveBeenCalled();
   });
 
-  it("should preserve collapsed state across restarts", () => {
+  it("should create chat view when none exists on layout ready", () => {
+    // When no leaf exists, we auto-create one.
+    const activateChatView = vi.fn();
+
+    const onLayoutReady = (
+      getExistingLeaf: () => MockWorkspaceLeaf | null,
+      activate: () => void
+    ) => {
+      const leaf = getExistingLeaf();
+      if (leaf) {
+        // Just log.
+      } else {
+        // No existing view - create one.
+        activate();
+      }
+    };
+
+    onLayoutReady(() => null, activateChatView);
+
+    // activateChatView SHOULD be called when no leaf exists.
+    expect(activateChatView).toHaveBeenCalledTimes(1);
+  });
+
+  it("should preserve collapsed state when leaf exists", () => {
     // Simulate Obsidian restoring workspace with collapsed sidebar.
     const workspaceState = {
       rightSplit: { collapsed: true },
-      chatLeafExists: true,
+    };
+    const activateChatView = vi.fn();
+
+    const onLayoutReady = (leafExists: boolean, activate: () => void) => {
+      if (leafExists) {
+        // Don't force reveal, let Obsidian handle collapsed state.
+      } else {
+        activate();
+      }
     };
 
-    // The plugin should not modify the collapsed state.
-    const onLayoutReady = () => {
-      // New behavior: don't force reveal, let Obsidian handle it.
-      // Old behavior would have done: this.activateChatView()
-    };
-
-    onLayoutReady();
+    onLayoutReady(true, activateChatView);
 
     // Collapsed state should remain unchanged.
     expect(workspaceState.rightSplit.collapsed).toBe(true);
+    // Should not have activated (leaf exists).
+    expect(activateChatView).not.toHaveBeenCalled();
   });
 });

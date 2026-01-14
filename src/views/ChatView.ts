@@ -205,29 +205,31 @@ export class ChatView extends ItemView {
     setIcon(collapseButton, "panel-right-close");
     collapseButton.addEventListener("click", () => this.collapseSidebar());
 
-    // Close window button (only show if more than one window).
-    const windowCount = this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE).length;
-    if (windowCount > 1) {
-      const closeButton = actionsEl.createEl("button", {
-        attr: { "aria-label": "Close Window" },
-        cls: "claude-code-close-btn",
-      });
-      setIcon(closeButton, "x");
-      closeButton.addEventListener("click", () => this.closeThisWindow());
-    }
+    // Close pane button (X) - always show so user can close stuck panes.
+    const closeButton = actionsEl.createEl("button", {
+      attr: { "aria-label": "Close Pane" },
+      cls: "claude-code-close-btn",
+    });
+    setIcon(closeButton, "x");
+    closeButton.addEventListener("click", () => this.leaf.detach());
   }
 
   private collapseSidebar() {
-    // Collapse the right sidebar to hide this panel.
     const rightSplit = this.app.workspace.rightSplit;
     if (rightSplit && !rightSplit.collapsed) {
       rightSplit.collapse();
     }
   }
 
-  private closeThisWindow() {
-    // Detach this leaf to close the window.
-    this.leaf.detach();
+  // Check if a leaf is contained within a workspace split.
+  private isLeafInSplit(leaf: WorkspaceLeaf, split: any): boolean {
+    if (!split) return false;
+    let parent = leaf.parent;
+    while (parent) {
+      if (parent === split) return true;
+      parent = (parent as any).parent;
+    }
+    return false;
   }
 
   private showNewWindowMenu(e: MouseEvent) {

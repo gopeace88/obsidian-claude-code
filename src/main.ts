@@ -63,14 +63,15 @@ export default class ClaudeCodePlugin extends Plugin {
     // Register settings tab.
     this.addSettingTab(new ClaudeCodeSettingTab(this.app, this));
 
-    // Restore chat view state on layout ready.
-    // Note: We don't auto-reveal here - let Obsidian restore the collapsed state.
-    // The view already exists in the workspace if it was open before.
+    // Ensure chat view exists on layout ready.
     this.app.workspace.onLayoutReady(() => {
-      // Just ensure the view is properly initialized, don't force reveal.
       const existingLeaf = this.getExistingChatLeaf();
       if (existingLeaf) {
         logger.debug("Plugin", "Chat view restored from workspace layout");
+      } else {
+        // No existing view - create one in the right sidebar.
+        logger.debug("Plugin", "Creating chat view (none existed)");
+        this.activateChatView();
       }
     });
 
