@@ -146,7 +146,15 @@ export class AgentController {
       const hasOAuthToken = !!env.CLAUDE_CODE_OAUTH_TOKEN;
       const hasApiKey = !!env.ANTHROPIC_API_KEY;
       const hasBaseUrl = !!env.ANTHROPIC_BASE_URL;
-      logger.info("AgentController", "Auth status", { hasOAuthToken, hasApiKey, hasBaseUrl, model: this.plugin.settings.model, cwd: this.vaultPath });
+      logger.info("AgentController", "Auth status", {
+        hasOAuthToken,
+        hasApiKey,
+        hasBaseUrl,
+        model: this.plugin.settings.model,
+        cwd: this.vaultPath,
+        apiKeyLength: env.ANTHROPIC_API_KEY?.length,
+        apiKeyPrefix: env.ANTHROPIC_API_KEY?.substring(0, 10),
+      });
 
       // Find the Claude Code executable path.
       const claudeExecutable = requireClaudeExecutable();
@@ -154,8 +162,10 @@ export class AgentController {
       // Ensure nvm's node is in PATH for the subprocess.
       // The claude CLI is a node script (#!/usr/bin/env node) so node must be findable.
       const claudeDir = path.dirname(claudeExecutable);
+      const isWindows = process.platform === "win32";
+      const pathSeparator = isWindows ? ";" : ":";
       if (env.PATH && !env.PATH.includes(claudeDir)) {
-        env.PATH = `${claudeDir}:${env.PATH}`;
+        env.PATH = `${claudeDir}${pathSeparator}${env.PATH}`;
       } else if (!env.PATH) {
         env.PATH = claudeDir;
       }
@@ -185,16 +195,24 @@ export class AgentController {
           systemPrompt: { type: "preset", preset: "claude_code" },
           tools: { type: "preset", preset: "claude_code" },
 
-          // Add our Obsidian-specific tools.
-          mcpServers: {
-            obsidian: this.obsidianMcp,
-          },
+          // TODO: Re-enable Obsidian MCP tools after fixing Windows shell escaping.
+          // The mcpServers option causes issues on Windows with shell: true.
+          // mcpServers: {
+          //   obsidian: this.obsidianMcp,
+          // },
 
           // Include streaming updates for real-time UI.
           includePartialMessages: true,
 
           // Budget limit from settings.
           maxBudgetUsd: this.plugin.settings.maxBudgetPerSession,
+
+          // Capture stderr for debugging.
+          stderr: (message: string) => {
+            // Log full stderr for debugging.
+            console.error("[Claude CLI stderr]", message);
+            logger.error("AgentController", "CLI stderr", { message: message.substring(0, 500) });
+          },
 
           // Resume session if available.
           resume: this.sessionId ?? undefined,

@@ -4,6 +4,7 @@
   "description": "Claude Code AI assistant for Obsidian with Agent SDK and skills support",
   "main": "main.js",
   "scripts": {
+    "postinstall": "patch-package",
     "dev": "bun run esbuild.config.mjs",
     "build": "bun run tsc -noEmit -skipLibCheck && bun run esbuild.config.mjs production",
     "version": "bun run version-bump.mjs && git add manifest.json versions.json",
@@ -41,6 +42,7 @@
     "fast-check": "^3.15.0",
     "happy-dom": "^14.0.0",
     "obsidian": "latest",
+    "patch-package": "^8.0.1",
     "tslib": "^2.6.2",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.51.0",

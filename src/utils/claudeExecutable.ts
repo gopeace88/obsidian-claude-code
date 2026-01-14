@@ -15,46 +15,67 @@ import { logger } from "./Logger";
  */
 export function findClaudeExecutable(): string | undefined {
   const homeDir = os.homedir();
+  const isWindows = process.platform === "win32";
 
   // Common locations to check.
-  const possiblePaths: string[] = [
-    // User's npm global bin from NVM_BIN env var.
-    process.env.NVM_BIN ? `${process.env.NVM_BIN}/claude` : null,
+  const possiblePaths: string[] = [];
 
-    // Common nvm paths - check multiple node versions.
-    `${homeDir}/.nvm/versions/node/v20.11.1/bin/claude`,
-    `${homeDir}/.nvm/versions/node/v22.0.0/bin/claude`,
-    `${homeDir}/.nvm/versions/node/v21.0.0/bin/claude`,
-    `${homeDir}/.nvm/versions/node/v18.0.0/bin/claude`,
+  if (isWindows) {
+    // Windows paths - .cmd files work with patched SDK (shell: true).
+    const windowsPaths = [
+      // Claude Code installer location (primary on Windows).
+      path.join(homeDir, ".local", "bin", "claude.cmd"),
 
-    // npm global without nvm.
-    `${homeDir}/.npm-global/bin/claude`,
-    `${homeDir}/npm/bin/claude`,
+      // npm global on Windows (AppData\Roaming\npm).
+      path.join(homeDir, "AppData", "Roaming", "npm", "claude.cmd"),
 
-    // Standard npm global.
-    "/usr/local/bin/claude",
+      // Without .cmd extension.
+      path.join(homeDir, ".local", "bin", "claude"),
+      path.join(homeDir, "AppData", "Roaming", "npm", "claude"),
+    ];
+    possiblePaths.push(...windowsPaths);
+  } else {
+    // Unix/Mac paths.
+    const unixPaths = [
+      // User's npm global bin from NVM_BIN env var.
+      process.env.NVM_BIN ? `${process.env.NVM_BIN}/claude` : null,
 
-    // Homebrew on macOS.
-    "/opt/homebrew/bin/claude",
+      // Common nvm paths - check multiple node versions.
+      `${homeDir}/.nvm/versions/node/v20.11.1/bin/claude`,
+      `${homeDir}/.nvm/versions/node/v22.0.0/bin/claude`,
+      `${homeDir}/.nvm/versions/node/v21.0.0/bin/claude`,
+      `${homeDir}/.nvm/versions/node/v18.0.0/bin/claude`,
 
-    // Linux global.
-    "/usr/bin/claude",
-  ].filter((p): p is string => p !== null);
+      // npm global without nvm.
+      `${homeDir}/.npm-global/bin/claude`,
+      `${homeDir}/npm/bin/claude`,
 
-  // Also check all nvm versions dynamically.
-  const nvmDir = `${homeDir}/.nvm/versions/node`;
-  try {
-    if (fs.existsSync(nvmDir)) {
-      const versions = fs.readdirSync(nvmDir);
-      for (const ver of versions) {
-        const claudePath = path.join(nvmDir, ver, "bin", "claude");
-        if (!possiblePaths.includes(claudePath)) {
-          possiblePaths.push(claudePath);
+      // Standard npm global.
+      "/usr/local/bin/claude",
+
+      // Homebrew on macOS.
+      "/opt/homebrew/bin/claude",
+
+      // Linux global.
+      "/usr/bin/claude",
+    ].filter((p): p is string => p !== null);
+    possiblePaths.push(...unixPaths);
+
+    // Also check all nvm versions dynamically (Unix only).
+    const nvmDir = `${homeDir}/.nvm/versions/node`;
+    try {
+      if (fs.existsSync(nvmDir)) {
+        const versions = fs.readdirSync(nvmDir);
+        for (const ver of versions) {
+          const claudePath = path.join(nvmDir, ver, "bin", "claude");
+          if (!possiblePaths.includes(claudePath)) {
+            possiblePaths.push(claudePath);
+          }
         }
       }
+    } catch {
+      // Ignore errors reading nvm directory.
     }
-  } catch {
-    // Ignore errors reading nvm directory.
   }
 
   // Check if any exist.

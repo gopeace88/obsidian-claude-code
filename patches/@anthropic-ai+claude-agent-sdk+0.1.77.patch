@@ -1,0 +1,62 @@
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/LICENSE.md b/node_modules/@anthropic-ai/claude-agent-sdk/LICENSE.md
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/README.md b/node_modules/@anthropic-ai/claude-agent-sdk/README.md
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/bun.lock b/node_modules/@anthropic-ai/claude-agent-sdk/bun.lock
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sandboxTypes.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sandboxTypes.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sdk/controlTypes.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sdk/controlTypes.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sdk/coreTypes.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sdk/coreTypes.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sdk/runtimeTypes.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/sdk/runtimeTypes.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/resvg.wasm b/node_modules/@anthropic-ai/claude-agent-sdk/resvg.wasm
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
+index dff1773..9c7e25e 100755
+--- a/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
++++ b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
+@@ -7608,7 +7608,8 @@ class ProcessTransport {
+       stdio: ["pipe", "pipe", stderrMode],
+       signal,
+       env,
+-      windowsHide: true
++      windowsHide: true,
++      shell: process.platform === "win32"
+     });
+     if (env.DEBUG_CLAUDE_AGENT_SDK || this.options.stderr) {
+       childProcess.stderr.on("data", (data) => {
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/transport/processTransportTypes.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/transport/processTransportTypes.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/transport/transport.d.ts b/node_modules/@anthropic-ai/claude-agent-sdk/transport/transport.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/tree-sitter-bash.wasm b/node_modules/@anthropic-ai/claude-agent-sdk/tree-sitter-bash.wasm
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/COPYING b/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/COPYING
+old mode 100644
+new mode 100755
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/x64-win32/rg.exe b/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/x64-win32/rg.exe
+old mode 100644
+new mode 100755
