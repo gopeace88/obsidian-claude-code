@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, Notice, ItemView } from "obsidian";
+import { Plugin, WorkspaceLeaf, Notice, ItemView, Editor, MarkdownView, Menu } from "obsidian";
 import { ClaudeCodeSettings, DEFAULT_SETTINGS, CHAT_VIEW_TYPE } from "./types";
 import { ChatView } from "./views/ChatView";
 import { ClaudeCodeSettingTab } from "./settings/SettingsTab";
@@ -75,6 +75,107 @@ export default class ClaudeCodePlugin extends Plugin {
         }
       },
     });
+
+    // ===== CONTEXTUAL EDITOR COMMANDS =====
+
+    // Summarize selection.
+    this.addCommand({
+      id: "summarize-selection",
+      name: "Summarize Selection",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.processSelection(editor, view, "summarize");
+      },
+    });
+
+    // Fix grammar and style.
+    this.addCommand({
+      id: "fix-grammar",
+      name: "Fix Grammar & Style",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.processSelection(editor, view, "fix-grammar");
+      },
+    });
+
+    // Continue writing.
+    this.addCommand({
+      id: "continue-writing",
+      name: "Continue Writing",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.processSelection(editor, view, "continue");
+      },
+    });
+
+    // Generate tags.
+    this.addCommand({
+      id: "generate-tags",
+      name: "Generate Tags for Note",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.processSelection(editor, view, "generate-tags");
+      },
+    });
+
+    // Explain selection.
+    this.addCommand({
+      id: "explain-selection",
+      name: "Explain Selection",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.processSelection(editor, view, "explain");
+      },
+    });
+
+    // Translate selection.
+    this.addCommand({
+      id: "translate-selection",
+      name: "Translate Selection",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.processSelection(editor, view, "translate");
+      },
+    });
+
+    // Register editor context menu.
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor, view: MarkdownView) => {
+        const selection = editor.getSelection();
+        if (selection) {
+          menu.addSeparator();
+
+          menu.addItem((item) => {
+            item
+              .setTitle("Claude: Summarize")
+              .setIcon("file-text")
+              .onClick(() => this.processSelection(editor, view, "summarize"));
+          });
+
+          menu.addItem((item) => {
+            item
+              .setTitle("Claude: Fix Grammar")
+              .setIcon("check-circle")
+              .onClick(() => this.processSelection(editor, view, "fix-grammar"));
+          });
+
+          menu.addItem((item) => {
+            item
+              .setTitle("Claude: Explain")
+              .setIcon("help-circle")
+              .onClick(() => this.processSelection(editor, view, "explain"));
+          });
+
+          menu.addItem((item) => {
+            item
+              .setTitle("Claude: Continue Writing")
+              .setIcon("pen-line")
+              .onClick(() => this.processSelection(editor, view, "continue"));
+          });
+
+          menu.addItem((item) => {
+            item
+              .setTitle("Claude: Translate")
+              .setIcon("languages")
+              .onClick(() => this.processSelection(editor, view, "translate"));
+          });
+        }
+      })
+    );
 
     // Register settings tab.
     this.addSettingTab(new ClaudeCodeSettingTab(this.app, this));
@@ -293,5 +394,86 @@ Add your custom instructions here...
   getVaultPath(): string {
     const adapter = this.app.vault.adapter as any;
     return adapter.basePath || "";
+  }
+
+  // Process selected text with Claude.
+  private async processSelection(
+    editor: Editor,
+    view: MarkdownView,
+    action: "summarize" | "fix-grammar" | "continue" | "generate-tags" | "explain" | "translate"
+  ) {
+    const selection = editor.getSelection();
+    const file = view.file;
+
+    if (!selection && action !== "generate-tags" && action !== "continue") {
+      new Notice("Please select some text first");
+      return;
+    }
+
+    // Build prompt based on action.
+    let prompt: string;
+    let replaceSelection = false;
+
+    switch (action) {
+      case "summarize":
+        prompt = `Summarize the following text concisely. Return ONLY the summary, no explanation:\n\n${selection}`;
+        break;
+
+      case "fix-grammar":
+        prompt = `Fix the grammar and improve the style of the following text. Return ONLY the corrected text, no explanation:\n\n${selection}`;
+        replaceSelection = true;
+        break;
+
+      case "continue":
+        const context = selection || editor.getValue().slice(0, 2000);
+        prompt = `Continue writing the following text naturally. Match the tone and style. Return ONLY the continuation, no explanation:\n\n${context}`;
+        break;
+
+      case "generate-tags":
+        const noteContent = editor.getValue();
+        prompt = `Analyze this note and suggest relevant YAML tags for the frontmatter. Return ONLY a comma-separated list of tags (e.g., #project, #meeting, #idea), no explanation:\n\n${noteContent.slice(0, 3000)}`;
+        break;
+
+      case "explain":
+        prompt = `Explain the following text in simple terms:\n\n${selection}`;
+        break;
+
+      case "translate":
+        prompt = `Translate the following text to English if it's not in English, or to Korean if it's in English. Return ONLY the translation:\n\n${selection}`;
+        replaceSelection = true;
+        break;
+
+      default:
+        return;
+    }
+
+    // Ensure chat view exists.
+    await this.activateChatView();
+
+    const leaf = this.getExistingChatLeaf();
+    if (!leaf || !(leaf.view instanceof ChatView)) {
+      new Notice("Failed to open Claude chat");
+      return;
+    }
+
+    const chatView = leaf.view as ChatView;
+
+    // Store selection info for potential replacement.
+    if (replaceSelection && selection) {
+      chatView.setPendingReplacement({
+        editor,
+        from: editor.getCursor("from"),
+        to: editor.getCursor("to"),
+      });
+    }
+
+    // Send to chat.
+    chatView.sendMessageFromCommand(prompt, {
+      action,
+      filePath: file?.path,
+      replaceSelection,
+    });
+
+    new Notice(`Processing: ${action.replace("-", " ")}...`);
   }
 }

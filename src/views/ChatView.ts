@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Menu, ViewStateResult } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon, Menu, ViewStateResult, Editor, EditorPosition } from "obsidian";
 import { CHAT_VIEW_TYPE, ChatMessage, ToolCall, Conversation, ErrorType } from "../types";
 import type ClaudeCodePlugin from "../main";
 import { ChatInput } from "./ChatInput";
@@ -24,6 +24,16 @@ export class ChatView extends ItemView {
   private isCancelling = false;  // Flag to suppress error display during intentional cancel.
   private activeStreamConversationId: string | null = null;  // Track which conversation owns the active stream.
   private lastUserMessage: string | null = null;  // Store last message for retry functionality.
+  private pendingReplacement: {
+    editor: Editor;
+    from: EditorPosition;
+    to: EditorPosition;
+  } | null = null;  // Store selection for text replacement from editor commands.
+  private pendingCommandOptions: {
+    action: string;
+    filePath?: string;
+    replaceSelection?: boolean;
+  } | null = null;  // Metadata for editor commands.
 
   constructor(leaf: WorkspaceLeaf, plugin: ClaudeCodePlugin) {
     super(leaf);
@@ -928,5 +938,44 @@ export class ChatView extends ItemView {
 
   scrollToBottom() {
     this.messagesContainerEl.scrollTop = this.messagesContainerEl.scrollHeight;
+  }
+
+  // Set pending replacement info for editor commands that replace selection.
+  setPendingReplacement(info: { editor: Editor; from: EditorPosition; to: EditorPosition }) {
+    this.pendingReplacement = info;
+  }
+
+  // Send a message from a command (e.g., editor context menu).
+  async sendMessageFromCommand(
+    prompt: string,
+    options: { action: string; filePath?: string; replaceSelection?: boolean }
+  ) {
+    logger.info("ChatView", "sendMessageFromCommand called", { action: options.action, filePath: options.filePath });
+
+    // Store command options for potential use after response.
+    this.pendingCommandOptions = options;
+
+    // Send the message through the normal flow.
+    await this.handleSendMessage(prompt);
+
+    // If replaceSelection is true and we have a pending replacement, replace the selection with the response.
+    if (options.replaceSelection && this.pendingReplacement) {
+      // Find the last assistant message.
+      const lastAssistantMsg = [...this.messages].reverse().find((m) => m.role === "assistant");
+      if (lastAssistantMsg && lastAssistantMsg.content) {
+        try {
+          const { editor, from, to } = this.pendingReplacement;
+          // Replace the selection with the response content.
+          editor.replaceRange(lastAssistantMsg.content.trim(), from, to);
+          logger.info("ChatView", "Replaced selection with response", { action: options.action });
+        } catch (error) {
+          logger.error("ChatView", "Failed to replace selection", { error: String(error) });
+        }
+      }
+      this.pendingReplacement = null;
+    }
+
+    // Clear command options.
+    this.pendingCommandOptions = null;
   }
 }
