@@ -266,6 +266,16 @@ You have access to Obsidian-specific MCP tools. **ALWAYS prefer these tools over
 - \`mcp__obsidian__insert_at_cursor\` - Insert text at cursor position in the active editor.
 - \`mcp__obsidian__append_to_note\` - Append content to a specific note.
 
+### Dataview Integration
+- \`mcp__obsidian__execute_dataview_query\` - Execute DQL queries. Translate natural language to DQL.
+- \`mcp__obsidian__list_dataview_fields\` - List available metadata fields in the vault.
+- \`mcp__obsidian__get_dataview_page\` - Get all metadata for a specific file.
+
+**Natural Language to DQL Examples:**
+- "Show all notes tagged #project" → \`LIST FROM #project\`
+- "Tasks due this week" → \`TASK WHERE due >= date(today) AND due <= date(today) + dur(7 days)\`
+- "Recent meeting notes" → \`TABLE file.ctime FROM "Meetings" SORT file.ctime DESC LIMIT 10\`
+
 ## Guidelines
 
 1. **For "RAG status" questions**: Use \`mcp__obsidian__get_rag_stats\`, NOT file reads.

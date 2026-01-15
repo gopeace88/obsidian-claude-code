@@ -1638,6 +1638,231 @@ timeline
           };
         }
       ),
+
+      // ===== DATAVIEW INTEGRATION =====
+
+      // Execute a Dataview query (DQL).
+      tool(
+        "execute_dataview_query",
+        `Execute a Dataview Query Language (DQL) query and return results. Use this to search and analyze notes based on metadata, tags, and content.
+
+Common DQL patterns:
+- LIST: "LIST FROM #tag" - List notes with a tag
+- TABLE: "TABLE file.ctime, status FROM folder" - Table with columns
+- TASK: "TASK FROM folder" - List tasks from notes
+- CALENDAR: "CALENDAR file.ctime" - Calendar view data
+
+Examples:
+- "LIST FROM #project WHERE status = 'active'"
+- "TABLE file.name, due FROM #task WHERE !completed SORT due ASC"
+- "LIST FROM 'Daily Notes' WHERE file.ctime >= date(today) - dur(7 days)"
+
+Note: The user can ask in natural language like "show me all notes tagged project from last week" and you should translate it to DQL.`,
+        {
+          query: z.string().describe("The DQL query to execute (e.g., 'LIST FROM #tag')"),
+          sourcePath: z.string().optional().describe("Optional: path context for relative links"),
+        },
+        async (args) => {
+          const dataview = (app as any).plugins?.plugins?.dataview;
+          if (!dataview?.api) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Error: Dataview plugin is not installed or enabled. Please install Dataview from Community Plugins.",
+                },
+              ],
+            };
+          }
+
+          try {
+            const api = dataview.api;
+            const result = await api.queryMarkdown(args.query, args.sourcePath);
+
+            if (result.successful) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Dataview Query Results:\n\n${result.value}`,
+                  },
+                ],
+              };
+            } else {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Query Error: ${result.error}`,
+                  },
+                ],
+              };
+            }
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error executing query: ${String(error)}`,
+                },
+              ],
+            };
+          }
+        }
+      ),
+
+      // List available Dataview fields in the vault.
+      tool(
+        "list_dataview_fields",
+        "List all frontmatter fields and inline fields used across the vault. Useful for understanding what metadata is available for Dataview queries.",
+        {
+          sampleSize: z.number().optional().describe("Number of files to sample (default: 100, max: 500)"),
+        },
+        async (args) => {
+          const dataview = (app as any).plugins?.plugins?.dataview;
+          if (!dataview?.api) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Error: Dataview plugin is not installed or enabled.",
+                },
+              ],
+            };
+          }
+
+          try {
+            const api = dataview.api;
+            const files = app.vault.getMarkdownFiles();
+            const sampleSize = Math.min(args.sampleSize || 100, 500);
+            const sampledFiles = files.slice(0, sampleSize);
+
+            const fieldCounts: Record<string, number> = {};
+            const fieldExamples: Record<string, string[]> = {};
+
+            for (const file of sampledFiles) {
+              const page = api.page(file.path);
+              if (page) {
+                for (const [key, value] of Object.entries(page)) {
+                  // Skip internal Dataview fields.
+                  if (key.startsWith("file")) continue;
+
+                  fieldCounts[key] = (fieldCounts[key] || 0) + 1;
+
+                  // Store example values.
+                  if (!fieldExamples[key]) {
+                    fieldExamples[key] = [];
+                  }
+                  if (fieldExamples[key].length < 3 && value !== null && value !== undefined) {
+                    const valueStr = String(value).slice(0, 50);
+                    if (!fieldExamples[key].includes(valueStr)) {
+                      fieldExamples[key].push(valueStr);
+                    }
+                  }
+                }
+              }
+            }
+
+            // Sort by frequency.
+            const sortedFields = Object.entries(fieldCounts)
+              .sort((a, b) => b[1] - a[1])
+              .map(([field, count]) => ({
+                field,
+                count,
+                examples: fieldExamples[field] || [],
+              }));
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Dataview Fields (sampled from ${sampledFiles.length} files):\n\n${JSON.stringify(sortedFields, null, 2)}\n\nBuilt-in file fields: file.name, file.path, file.folder, file.ctime, file.mtime, file.size, file.tags, file.etags, file.inlinks, file.outlinks, file.tasks`,
+                },
+              ],
+            };
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error listing fields: ${String(error)}`,
+                },
+              ],
+            };
+          }
+        }
+      ),
+
+      // Get Dataview page metadata for a specific file.
+      tool(
+        "get_dataview_page",
+        "Get all Dataview metadata for a specific file, including frontmatter, inline fields, tasks, and links.",
+        {
+          path: z.string().describe("Path to the file relative to vault root"),
+        },
+        async (args) => {
+          const dataview = (app as any).plugins?.plugins?.dataview;
+          if (!dataview?.api) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Error: Dataview plugin is not installed or enabled.",
+                },
+              ],
+            };
+          }
+
+          try {
+            const api = dataview.api;
+            const page = api.page(args.path);
+
+            if (!page) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `File not found or not indexed: ${args.path}`,
+                  },
+                ],
+              };
+            }
+
+            // Extract relevant metadata.
+            const metadata: Record<string, any> = {};
+            for (const [key, value] of Object.entries(page)) {
+              // Convert Dataview objects to plain values.
+              if (value && typeof value === "object" && "path" in value) {
+                metadata[key] = (value as any).path;
+              } else if (Array.isArray(value)) {
+                metadata[key] = value.map((v: any) =>
+                  v && typeof v === "object" && "path" in v ? v.path : v
+                );
+              } else {
+                metadata[key] = value;
+              }
+            }
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Dataview metadata for "${args.path}":\n\n${JSON.stringify(metadata, null, 2)}`,
+                },
+              ],
+            };
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error getting page metadata: ${String(error)}`,
+                },
+              ],
+            };
+          }
+        }
+      ),
     ],
   });
 }
