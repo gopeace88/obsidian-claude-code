@@ -434,15 +434,17 @@ Add your custom instructions here...
         replaceSelection = true;
         break;
 
-      case "continue":
+      case "continue": {
         const context = selection || editor.getValue().slice(0, 2000);
         prompt = `Continue writing the following text naturally. Match the tone and style. Return ONLY the continuation, no explanation:\n\n${context}`;
         break;
+      }
 
-      case "generate-tags":
+      case "generate-tags": {
         const noteContent = editor.getValue();
         prompt = `Analyze this note and suggest relevant YAML tags for the frontmatter. Return ONLY a comma-separated list of tags (e.g., #project, #meeting, #idea), no explanation:\n\n${noteContent.slice(0, 3000)}`;
         break;
+      }
 
       case "explain":
         prompt = `Explain the following text in simple terms:\n\n${selection}`;

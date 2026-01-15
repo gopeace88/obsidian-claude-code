@@ -1094,7 +1094,7 @@ timeline
                 const due = dueMatch ? dueMatch[1] : undefined;
 
                 // Extract priority.
-                const priorityMatch = text.match(/[⏫🔼🔽⏬]|priority:\s*(high|medium|low)/i);
+                const priorityMatch = text.match(/[⏫🔼🔽⏬]|priority:\s*(high|medium|low)/iu);
                 const priority = priorityMatch ? priorityMatch[0] : undefined;
 
                 // Apply filter.
