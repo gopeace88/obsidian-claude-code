@@ -310,4 +310,15 @@ export class ChatInput {
     this.textareaEl.value = value;
     this.autoResize();
   }
+
+  // Set file contexts from external source (e.g., conversation restore).
+  setFileContexts(paths: string[]) {
+    this.fileContexts = [...paths];
+    this.updateContextChips();
+  }
+
+  // Get current file contexts.
+  getFileContexts(): string[] {
+    return [...this.fileContexts];
+  }
 }

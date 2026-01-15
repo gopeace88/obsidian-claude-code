@@ -1,4 +1,5 @@
 import { ItemView } from "obsidian";
+import { RAGSettings, DEFAULT_RAG_SETTINGS } from "./rag/types";
 
 // View type constant for registration.
 export const CHAT_VIEW_TYPE = "claude-code-chat-view";
@@ -26,6 +27,9 @@ export interface ClaudeCodeSettings {
 
   // Agent SDK settings.
   maxTurns: number;
+
+  // RAG settings.
+  rag: RAGSettings;
 }
 
 // Default settings values.
@@ -40,10 +44,11 @@ export const DEFAULT_SETTINGS: ClaudeCodeSettings = {
   sidebarWidth: 400,
   maxBudgetPerSession: 10.0,
   maxTurns: 50,
+  rag: DEFAULT_RAG_SETTINGS,
 };
 
 // Error classification for retry and display logic.
-export type ErrorType = "transient" | "auth" | "network" | "permanent";
+export type ErrorType = "transient" | "auth" | "network" | "permanent" | "abort" | "session_expired";
 
 // Error with classification for better handling.
 export interface ClassifiedError extends Error {

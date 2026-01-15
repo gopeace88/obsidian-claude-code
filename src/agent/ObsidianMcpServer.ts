@@ -1,8 +1,9 @@
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { App, Notice, TFile, TFolder, Command } from "obsidian";
+import { App, Notice, TFile, TFolder, Command, MarkdownView } from "obsidian";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { HybridRAGService } from "../rag";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,7 +13,8 @@ export type ObsidianMcpServerInstance = ReturnType<typeof createSdkMcpServer>;
 // Create the Obsidian MCP server with custom tools.
 export function createObsidianMcpServer(
   app: App,
-  vaultPath: string
+  vaultPath: string,
+  ragService?: HybridRAGService
 ): ObsidianMcpServerInstance {
   return createSdkMcpServer({
     name: "obsidian",
@@ -378,6 +380,83 @@ export function createObsidianMcpServer(
         }
       ),
 
+      // Insert text at cursor position in the active editor.
+      tool(
+        "insert_at_cursor",
+        "Insert text at the current cursor position in the active editor. Use this to directly insert Mermaid diagrams, tables, or any content into the user's note.",
+        {
+          text: z.string().describe("Text to insert at cursor position"),
+        },
+        async (args) => {
+          const activeView = app.workspace.getActiveViewOfType(MarkdownView);
+          if (!activeView) {
+            return {
+              content: [
+                { type: "text" as const, text: "No active markdown editor" },
+              ],
+            };
+          }
+
+          const editor = activeView.editor;
+          const cursor = editor.getCursor();
+          editor.replaceRange(args.text, cursor);
+
+          // Move cursor to end of inserted text.
+          const lines = args.text.split("\n");
+          const lastLineLength = lines[lines.length - 1].length;
+          const newLine = cursor.line + lines.length - 1;
+          const newCh = lines.length === 1 ? cursor.ch + lastLineLength : lastLineLength;
+          editor.setCursor({ line: newLine, ch: newCh });
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Inserted ${args.text.length} characters at line ${cursor.line + 1}`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // Append content to an existing note.
+      tool(
+        "append_to_note",
+        "Append content to the end of an existing note. Use this to add Mermaid diagrams, tables, or sections to a note without opening it.",
+        {
+          path: z.string().describe("Path to the note (relative to vault root)"),
+          content: z.string().describe("Content to append"),
+          separator: z
+            .string()
+            .optional()
+            .describe("Separator before content (default: two newlines)"),
+        },
+        async (args) => {
+          const file = app.vault.getAbstractFileByPath(args.path);
+          if (!(file instanceof TFile)) {
+            return {
+              content: [
+                { type: "text" as const, text: `File not found: ${args.path}` },
+              ],
+            };
+          }
+
+          const currentContent = await app.vault.read(file);
+          const separator = args.separator ?? "\n\n";
+          const newContent = currentContent + separator + args.content;
+          await app.vault.modify(file, newContent);
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Appended ${args.content.length} characters to ${args.path}`,
+              },
+            ],
+          };
+        }
+      ),
+
       // Get recently modified files.
       tool(
         "get_recent_files",
@@ -413,6 +492,237 @@ export function createObsidianMcpServer(
           return {
             content: [
               { type: "text" as const, text: JSON.stringify(recent, null, 2) },
+            ],
+          };
+        }
+      ),
+
+      // RAG: Semantic search across vault.
+      tool(
+        "semantic_search",
+        "Search vault using semantic similarity (RAG). Returns relevant note chunks based on meaning, not just keywords. Uses Smart Connections, Omnisearch, or internal embeddings.",
+        {
+          query: z.string().describe("Search query - describe what you're looking for"),
+          topK: z
+            .number()
+            .optional()
+            .describe("Number of results to return (default: 5)"),
+          folder: z
+            .string()
+            .optional()
+            .describe("Limit search to this folder"),
+        },
+        async (args) => {
+          if (!ragService || !ragService.isEnabled()) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "RAG is not enabled. Enable it in plugin settings.",
+                },
+              ],
+            };
+          }
+
+          const results = await ragService.search(args.query, {
+            topK: args.topK ?? 5,
+            folder: args.folder,
+          });
+
+          if (results.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `No results found for: "${args.query}"`,
+                },
+              ],
+            };
+          }
+
+          const formatted = results.map((r, i) => ({
+            rank: i + 1,
+            file: r.file,
+            score: r.score.toFixed(3),
+            headings: r.metadata?.headings ?? [],
+            content: r.content.slice(0, 300) + (r.content.length > 300 ? "..." : ""),
+          }));
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(formatted, null, 2),
+              },
+            ],
+          };
+        }
+      ),
+
+      // RAG: Find related notes.
+      tool(
+        "get_related_notes",
+        "Find notes semantically related to the current file or given content. Uses RAG to find conceptually similar notes.",
+        {
+          path: z
+            .string()
+            .optional()
+            .describe("Note path to find related notes for (default: active file)"),
+          topK: z
+            .number()
+            .optional()
+            .describe("Number of related notes to return (default: 5)"),
+        },
+        async (args) => {
+          if (!ragService || !ragService.isEnabled()) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "RAG is not enabled. Enable it in plugin settings.",
+                },
+              ],
+            };
+          }
+
+          // Get target file.
+          const targetPath = args.path;
+          const file = targetPath
+            ? app.vault.getAbstractFileByPath(targetPath)
+            : app.workspace.getActiveFile();
+
+          if (!file || !(file instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: targetPath
+                    ? `File not found: ${targetPath}`
+                    : "No active file",
+                },
+              ],
+            };
+          }
+
+          // Read content and find related.
+          const content = await app.vault.read(file);
+          const results = await ragService.findRelated(content, args.topK ?? 5);
+
+          // Filter out the source file itself.
+          const filtered = results.filter((r) => r.file !== file.path);
+
+          if (filtered.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `No related notes found for: ${file.path}`,
+                },
+              ],
+            };
+          }
+
+          const formatted = filtered.map((r, i) => ({
+            rank: i + 1,
+            file: r.file,
+            score: r.score.toFixed(3),
+            preview: r.content.slice(0, 200) + "...",
+          }));
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(formatted, null, 2),
+              },
+            ],
+          };
+        }
+      ),
+
+      // RAG: Rebuild index.
+      tool(
+        "rebuild_rag_index",
+        "Rebuild the RAG semantic index for the vault. Use this after bulk changes or when search seems stale.",
+        {
+          force: z
+            .boolean()
+            .optional()
+            .describe("Force full rebuild, ignoring incremental updates (default: false)"),
+        },
+        async (args) => {
+          if (!ragService) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "RAG service not available.",
+                },
+              ],
+            };
+          }
+
+          try {
+            const stats = await ragService.reindex(args.force ?? false);
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `RAG index rebuilt: ${stats.files} files, ${stats.chunks} chunks indexed.`,
+                },
+              ],
+            };
+          } catch (error: any) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Failed to rebuild index: ${error.message}`,
+                },
+              ],
+            };
+          }
+        }
+      ),
+
+      // RAG: Get index stats.
+      tool(
+        "get_rag_stats",
+        "Get statistics about the RAG index: number of indexed files, chunks, and active provider.",
+        {},
+        async () => {
+          if (!ragService) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "RAG service not available.",
+                },
+              ],
+            };
+          }
+
+          const stats = await ragService.getStats();
+          const provider = ragService.getActiveProviderName();
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    enabled: ragService.isEnabled(),
+                    activeProvider: provider,
+                    indexedFiles: stats.files,
+                    totalChunks: stats.chunks,
+                    lastUpdated: stats.lastUpdated
+                      ? new Date(stats.lastUpdated).toISOString()
+                      : "never",
+                  },
+                  null,
+                  2
+                ),
+              },
             ],
           };
         }

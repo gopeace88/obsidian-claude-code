@@ -308,6 +308,12 @@ export class ChatView extends ItemView {
     // The activeStreamConversationId tracks which conversation owns the stream.
     // When switching, we just clear UI state but the stream continues.
 
+    // Save pinned files from current conversation before switching.
+    const currentPinnedFiles = this.chatInput.getFileContexts();
+    if (currentPinnedFiles.length > 0) {
+      await this.conversationManager.savePinnedFiles(currentPinnedFiles);
+    }
+
     // Clear UI streaming state (but stream continues in background).
     this.streamingMessageId = null;
     this.isStreaming = false;
@@ -336,7 +342,12 @@ export class ChatView extends ItemView {
       // Update tab title and header.
       (this.leaf as any).updateHeader?.();
       this.updateConversationDisplay();
-      logger.info("ChatView", "loadConversation rendered", { messageCount: this.messages.length });
+
+      // Restore pinned files for this conversation.
+      const pinnedFiles = this.conversationManager.getPinnedFiles();
+      this.chatInput.setFileContexts(pinnedFiles);
+
+      logger.info("ChatView", "loadConversation rendered", { messageCount: this.messages.length, pinnedFiles: pinnedFiles.length });
     } else {
       logger.error("ChatView", "loadConversation failed - conversation not found", { id });
     }
@@ -456,6 +467,20 @@ export class ChatView extends ItemView {
     try {
       // Send to agent and get response.
       const response = await this.agentController.sendMessage(content.trim());
+
+      // Handle user abort (returns null).
+      if (!response) {
+        logger.info("ChatView", "Query was aborted by user, cleaning up");
+        // Remove the streaming placeholder message.
+        if (streamMsgId) {
+          const streamingIndex = this.messages.findIndex((m) => m.id === streamMsgId);
+          if (streamingIndex !== -1) {
+            this.messages.splice(streamingIndex, 1);
+          }
+        }
+        this.messageList.render(this.messages);
+        return;
+      }
 
       // Save to the conversation that started the stream (may be different from current if user switched).
       if (streamConvId) {
@@ -766,6 +791,19 @@ export class ChatView extends ItemView {
 
     try {
       const response = await this.agentController.sendMessage(content);
+
+      // Handle user abort (returns null).
+      if (!response) {
+        logger.info("ChatView", "Slash command query was aborted by user");
+        if (streamMsgId) {
+          const streamingIndex = this.messages.findIndex((m) => m.id === streamMsgId);
+          if (streamingIndex !== -1) {
+            this.messages.splice(streamingIndex, 1);
+          }
+        }
+        this.messageList.render(this.messages);
+        return;
+      }
 
       // Save to the conversation that started the stream.
       if (streamConvId) {

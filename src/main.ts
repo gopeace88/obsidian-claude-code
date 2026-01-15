@@ -60,8 +60,27 @@ export default class ClaudeCodePlugin extends Plugin {
       },
     });
 
+    // Add command to pin current note to Claude context.
+    this.addCommand({
+      id: "pin-current-note",
+      name: "Pin Current Note to Claude Context",
+      hotkeys: [{ modifiers: ["Ctrl", "Shift"], key: "p" }],
+      callback: () => {
+        const leaf = this.getExistingChatLeaf();
+        if (leaf && leaf.view instanceof ChatView) {
+          leaf.view.addCurrentFileContext();
+          new Notice("Note pinned to Claude context");
+        } else {
+          new Notice("Open Claude chat first");
+        }
+      },
+    });
+
     // Register settings tab.
     this.addSettingTab(new ClaudeCodeSettingTab(this.app, this));
+
+    // Ensure .claude/CLAUDE.md exists with Obsidian tool instructions.
+    await this.ensureClaudeMd();
 
     // Ensure chat view exists on layout ready.
     this.app.workspace.onLayoutReady(() => {
@@ -90,6 +109,73 @@ export default class ClaudeCodePlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  // Ensure .claude/CLAUDE.md exists with Obsidian-specific tool instructions.
+  private async ensureClaudeMd() {
+    const claudeDir = ".claude";
+    const claudeMdPath = `${claudeDir}/CLAUDE.md`;
+
+    try {
+      // Create .claude directory if it doesn't exist.
+      if (!(await this.app.vault.adapter.exists(claudeDir))) {
+        await this.app.vault.adapter.mkdir(claudeDir);
+        logger.info("Plugin", "Created .claude directory");
+      }
+
+      // Create CLAUDE.md if it doesn't exist.
+      if (!(await this.app.vault.adapter.exists(claudeMdPath))) {
+        const content = this.getDefaultClaudeMdContent();
+        await this.app.vault.adapter.write(claudeMdPath, content);
+        logger.info("Plugin", "Created default .claude/CLAUDE.md");
+      }
+    } catch (error) {
+      logger.warn("Plugin", "Failed to ensure CLAUDE.md", { error: String(error) });
+    }
+  }
+
+  // Default content for CLAUDE.md with Obsidian-specific tool guidance.
+  private getDefaultClaudeMdContent(): string {
+    return `# Obsidian Vault Assistant
+
+## Obsidian-Specific Tools
+
+You have access to Obsidian-specific MCP tools. **ALWAYS prefer these tools over generic file operations**:
+
+### RAG (Retrieval Augmented Generation)
+- \`mcp__obsidian__semantic_search\` - Search vault content semantically. Use this for finding related notes.
+- \`mcp__obsidian__get_related_notes\` - Find notes related to a given note.
+- \`mcp__obsidian__get_rag_stats\` - Get RAG index status (number of indexed files, active provider).
+- \`mcp__obsidian__rebuild_rag_index\` - Rebuild the RAG index if needed.
+
+### Vault Operations
+- \`mcp__obsidian__get_active_file\` - Get the currently open file.
+- \`mcp__obsidian__open_file\` - Open a file in Obsidian.
+- \`mcp__obsidian__create_note\` - Create a new note.
+- \`mcp__obsidian__get_vault_stats\` - Get vault statistics.
+- \`mcp__obsidian__get_recent_files\` - List recently modified files.
+- \`mcp__obsidian__reveal_in_explorer\` - Show file in file explorer.
+
+### UI Operations
+- \`mcp__obsidian__show_notice\` - Show a notification to the user.
+- \`mcp__obsidian__execute_command\` - Execute an Obsidian command.
+- \`mcp__obsidian__list_commands\` - List available Obsidian commands.
+
+### Content Insertion
+- \`mcp__obsidian__insert_at_cursor\` - Insert text at cursor position in the active editor.
+- \`mcp__obsidian__append_to_note\` - Append content to a specific note.
+
+## Guidelines
+
+1. **For "RAG status" questions**: Use \`mcp__obsidian__get_rag_stats\`, NOT file reads.
+2. **For searching vault content**: Use \`mcp__obsidian__semantic_search\`, NOT Grep/Glob.
+3. **For finding related notes**: Use \`mcp__obsidian__get_related_notes\`.
+4. **For vault info**: Use \`mcp__obsidian__get_vault_stats\`, NOT manual counting.
+
+## User Preferences
+
+Add your custom instructions here...
+`;
   }
 
   // Get existing chat leaf if any.

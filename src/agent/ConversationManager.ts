@@ -14,6 +14,7 @@ const HISTORY_DIR = "history";
 interface StoredConversation extends Conversation {
   history: MessageParam[];
   displayMessages: ChatMessage[];
+  pinnedFiles?: string[];
 }
 
 // Index of all conversations.
@@ -387,6 +388,18 @@ export class ConversationManager {
   // Clear current conversation.
   clearCurrent() {
     this.currentConversation = null;
+  }
+
+  // Save pinned files for the current conversation.
+  async savePinnedFiles(pinnedFiles: string[]) {
+    if (!this.currentConversation) return;
+    this.currentConversation.pinnedFiles = pinnedFiles;
+    await this.saveConversation(this.currentConversation);
+  }
+
+  // Get pinned files from the current conversation.
+  getPinnedFiles(): string[] {
+    return this.currentConversation?.pinnedFiles ?? [];
   }
 
   // Generate a unique ID.

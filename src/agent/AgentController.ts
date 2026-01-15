@@ -4,6 +4,7 @@ import * as path from "path";
 import type ClaudeCodePlugin from "../main";
 import { ChatMessage, ToolCall, AgentEvents, SubagentProgress, ErrorType } from "../types";
 import { createObsidianMcpServer, ObsidianMcpServerInstance } from "./ObsidianMcpServer";
+import { HybridRAGService } from "../rag";
 import { logger } from "../utils/Logger";
 import { requireClaudeExecutable } from "../utils/claudeExecutable";
 
@@ -25,6 +26,18 @@ type ContentBlock = TextBlock | ToolUseBlock;
 // Classify an error to determine if retry is appropriate.
 export function classifyError(error: Error): ErrorType {
   const msg = error.message.toLowerCase();
+  
+  // Debug log for error classification.
+  console.log("[classifyError] Input message:", error.message);
+  console.log("[classifyError] Lowercase:", msg);
+  console.log("[classifyError] includes 'aborted by user':", msg.includes("aborted by user"));
+
+  // User abort - not a real error, should be handled gracefully.
+  if (msg.includes("aborted by user")) return "abort";
+  if (msg.includes("abort") && msg.includes("user")) return "abort";
+
+  // Session expired - needs to clear session and retry.
+  if (msg.includes("no conversation found")) return "session_expired";
 
   // Transient errors - worth retrying.
   if (msg.includes("process exited with code 1")) return "transient";
@@ -53,6 +66,7 @@ export class AgentController {
   private app: App;
   private vaultPath: string;
   private obsidianMcp: ObsidianMcpServerInstance;
+  private ragService: HybridRAGService;
   private abortController: AbortController | null = null;
   private events: Partial<AgentEvents> = {};
   private sessionId: string | null = null;
@@ -70,7 +84,17 @@ export class AgentController {
     this.plugin = plugin;
     this.app = plugin.app;
     this.vaultPath = this.getVaultPath();
-    this.obsidianMcp = createObsidianMcpServer(this.app, this.vaultPath);
+
+    // Initialize RAG service with settings.
+    this.ragService = new HybridRAGService(this.app, plugin.settings.rag);
+
+    // Create MCP server with RAG service.
+    this.obsidianMcp = createObsidianMcpServer(this.app, this.vaultPath, this.ragService);
+    logger.info("AgentController", "Created Obsidian MCP server", {
+      name: this.obsidianMcp.name,
+      type: this.obsidianMcp.type,
+      hasInstance: !!this.obsidianMcp.instance,
+    });
   }
 
   private getVaultPath(): string {
@@ -84,7 +108,7 @@ export class AgentController {
   }
 
   // Send a message with automatic retry for transient errors.
-  async sendMessage(content: string, maxRetries = 2): Promise<ChatMessage> {
+  async sendMessage(content: string, maxRetries = 2): Promise<ChatMessage | null> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -93,6 +117,20 @@ export class AgentController {
       } catch (error) {
         lastError = error as Error;
         const errorType = classifyError(lastError);
+
+        // User abort - not a real error, return null gracefully.
+        if (errorType === "abort") {
+          logger.info("AgentController", "Query aborted by user");
+          return null;
+        }
+
+        // Session expired - clear session and retry.
+        if (errorType === "session_expired") {
+          logger.info("AgentController", "Session expired, clearing and retrying");
+          this.sessionId = null;
+          // Continue to next attempt without waiting.
+          continue;
+        }
 
         logger.warn("AgentController", `Attempt ${attempt + 1} failed`, {
           errorType,
@@ -169,7 +207,13 @@ export class AgentController {
       } else if (!env.PATH) {
         env.PATH = claudeDir;
       }
-      logger.info("AgentController", "Starting query()", { claudeExecutable, pathAddition: claudeDir });
+      logger.info("AgentController", "Starting query()", {
+        claudeExecutable,
+        pathAddition: claudeDir,
+        mcpServerName: this.obsidianMcp?.name,
+        mcpServerType: this.obsidianMcp?.type,
+        hasMcpInstance: !!this.obsidianMcp?.instance,
+      });
 
       for await (const message of query({
         // Use simple string prompt for cleaner API.
@@ -195,11 +239,10 @@ export class AgentController {
           systemPrompt: { type: "preset", preset: "claude_code" },
           tools: { type: "preset", preset: "claude_code" },
 
-          // TODO: Re-enable Obsidian MCP tools after fixing Windows shell escaping.
-          // The mcpServers option causes issues on Windows with shell: true.
-          // mcpServers: {
-          //   obsidian: this.obsidianMcp,
-          // },
+          // Obsidian MCP tools for vault operations.
+          mcpServers: {
+            obsidian: this.obsidianMcp,
+          },
 
           // Include streaming updates for real-time UI.
           includePartialMessages: true,
@@ -458,6 +501,9 @@ export class AgentController {
       "mcp__obsidian__get_vault_stats",
       "mcp__obsidian__get_recent_files",
       "mcp__obsidian__list_commands",
+      "mcp__obsidian__semantic_search",
+      "mcp__obsidian__get_related_notes",
+      "mcp__obsidian__get_rag_stats",
     ];
 
     if (readOnlyTools.includes(toolName)) {
@@ -471,6 +517,7 @@ export class AgentController {
       "mcp__obsidian__reveal_in_explorer",
       "mcp__obsidian__execute_command",
       "mcp__obsidian__create_note",
+      "mcp__obsidian__rebuild_rag_index",
     ];
 
     if (obsidianUiTools.includes(toolName)) {
@@ -725,5 +772,20 @@ export class AgentController {
   // Generate a unique message ID.
   private generateId(): string {
     return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  }
+
+  // Get RAG service for external access.
+  getRAGService(): HybridRAGService {
+    return this.ragService;
+  }
+
+  // Update RAG settings.
+  updateRAGSettings(settings: Parameters<HybridRAGService["updateSettings"]>[0]) {
+    this.ragService.updateSettings(settings);
+  }
+
+  // Cleanup resources.
+  destroy() {
+    this.ragService.close();
   }
 }

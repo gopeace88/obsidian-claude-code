@@ -204,6 +204,168 @@ export class ClaudeCodeSettingTab extends PluginSettingTab {
           })
       );
 
+    // RAG Settings Section.
+    containerEl.createEl("h3", { text: "RAG (Semantic Search)" });
+
+    const ragSettings = this.plugin.settings.rag;
+
+    new Setting(containerEl)
+      .setName("Enable RAG")
+      .setDesc("Enable semantic search across your vault using AI embeddings")
+      .addToggle((toggle) =>
+        toggle.setValue(ragSettings.enableRAG).onChange(async (value) => {
+          this.plugin.settings.rag.enableRAG = value;
+          await this.plugin.saveSettings();
+          this.display(); // Re-render to show/hide RAG options.
+        })
+      );
+
+    if (ragSettings.enableRAG) {
+      // Provider priority.
+      const providerDescriptions = {
+        "smart-connections": "Smart Connections plugin (if installed)",
+        omnisearch: "Omnisearch plugin (keyword-based)",
+        internal: "Built-in embeddings (Ollama)",
+      };
+
+      new Setting(containerEl)
+        .setName("Provider priority")
+        .setDesc("Order in which to try RAG providers. First available one is used.")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption(
+              "smart-connections,omnisearch,internal",
+              "Smart Connections → Omnisearch → Internal"
+            )
+            .addOption("omnisearch,internal", "Omnisearch → Internal")
+            .addOption("internal", "Internal only (Ollama)")
+            .setValue(ragSettings.providerPriority.join(","))
+            .onChange(async (value) => {
+              this.plugin.settings.rag.providerPriority = value.split(",") as any;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      // Internal RAG settings.
+      const internalSettingsEl = containerEl.createDiv({ cls: "claude-code-rag-internal" });
+      internalSettingsEl.createEl("h4", { text: "Internal RAG Settings" });
+      internalSettingsEl.createEl("p", {
+        text: "Settings for built-in embedding-based search (requires Ollama).",
+        cls: "setting-item-description",
+      });
+
+      new Setting(internalSettingsEl)
+        .setName("Embedding provider")
+        .setDesc("Service to generate embeddings")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("ollama", "Ollama (Local)")
+            .addOption("openai", "OpenAI (Cloud)")
+            .setValue(ragSettings.embeddingProvider)
+            .onChange(async (value) => {
+              this.plugin.settings.rag.embeddingProvider = value as "ollama" | "openai";
+              await this.plugin.saveSettings();
+              this.display();
+            })
+        );
+
+      if (ragSettings.embeddingProvider === "ollama") {
+        new Setting(internalSettingsEl)
+          .setName("Ollama URL")
+          .setDesc("URL of your Ollama server")
+          .addText((text) =>
+            text
+              .setPlaceholder("http://localhost:11434")
+              .setValue(ragSettings.ollamaUrl)
+              .onChange(async (value) => {
+                this.plugin.settings.rag.ollamaUrl = value;
+                await this.plugin.saveSettings();
+              })
+          );
+
+        new Setting(internalSettingsEl)
+          .setName("Ollama model")
+          .setDesc("Embedding model to use (e.g., nomic-embed-text)")
+          .addText((text) =>
+            text
+              .setPlaceholder("nomic-embed-text")
+              .setValue(ragSettings.ollamaModel)
+              .onChange(async (value) => {
+                this.plugin.settings.rag.ollamaModel = value;
+                await this.plugin.saveSettings();
+              })
+          );
+      }
+
+      if (ragSettings.embeddingProvider === "openai") {
+        new Setting(internalSettingsEl)
+          .setName("OpenAI API Key")
+          .setDesc("API key for OpenAI embeddings")
+          .addText((text) =>
+            text
+              .setPlaceholder("sk-...")
+              .setValue(ragSettings.openaiApiKey || "")
+              .onChange(async (value) => {
+                this.plugin.settings.rag.openaiApiKey = value;
+                await this.plugin.saveSettings();
+              })
+          )
+          .then((setting) => {
+            const inputEl = setting.controlEl.querySelector("input");
+            if (inputEl) inputEl.type = "password";
+          });
+      }
+
+      // Search settings.
+      new Setting(containerEl)
+        .setName("Results per search")
+        .setDesc("Number of chunks to return from semantic search")
+        .addText((text) =>
+          text
+            .setPlaceholder("5")
+            .setValue(String(ragSettings.topK))
+            .onChange(async (value) => {
+              const parsed = parseInt(value, 10);
+              if (!isNaN(parsed) && parsed > 0 && parsed <= 20) {
+                this.plugin.settings.rag.topK = parsed;
+                await this.plugin.saveSettings();
+              }
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Chunking strategy")
+        .setDesc("How to split notes into searchable chunks")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("heading", "By headings (recommended)")
+            .addOption("fixed", "Fixed size")
+            .addOption("smart", "Smart (headings + paragraphs)")
+            .setValue(ragSettings.chunkStrategy)
+            .onChange(async (value) => {
+              this.plugin.settings.rag.chunkStrategy = value as "heading" | "fixed" | "smart";
+              await this.plugin.saveSettings();
+            })
+        );
+
+      // Excluded folders.
+      new Setting(containerEl)
+        .setName("Excluded folders")
+        .setDesc("Folders to exclude from indexing (comma-separated)")
+        .addText((text) =>
+          text
+            .setPlaceholder(".obsidian, .trash, node_modules")
+            .setValue(ragSettings.excludeFolders.join(", "))
+            .onChange(async (value) => {
+              this.plugin.settings.rag.excludeFolders = value
+                .split(",")
+                .map((f) => f.trim())
+                .filter((f) => f.length > 0);
+              await this.plugin.saveSettings();
+            })
+        );
+    }
+
     // About Section.
     containerEl.createEl("h3", { text: "About" });
 
