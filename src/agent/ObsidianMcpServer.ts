@@ -727,6 +727,917 @@ export function createObsidianMcpServer(
           };
         }
       ),
+
+      // ===== MERMAID DIAGRAM TOOLS =====
+
+      // Generate Mermaid diagram from description.
+      tool(
+        "generate_mermaid",
+        "Generate a Mermaid diagram code block from a description. Returns the Mermaid markdown that can be inserted into a note. Obsidian renders Mermaid diagrams natively.",
+        {
+          type: z
+            .enum(["flowchart", "sequence", "classDiagram", "stateDiagram", "erDiagram", "gantt", "pie", "mindmap", "timeline"])
+            .describe("Type of diagram to generate"),
+          description: z
+            .string()
+            .describe("Description of what the diagram should show"),
+          direction: z
+            .enum(["TB", "BT", "LR", "RL"])
+            .optional()
+            .describe("Direction for flowcharts (TB=top-bottom, LR=left-right, etc.)"),
+        },
+        async (args) => {
+          // Return a template based on diagram type.
+          const templates: Record<string, string> = {
+            flowchart: `\`\`\`mermaid
+flowchart ${args.direction || "TB"}
+    %% ${args.description}
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action 1]
+    B -->|No| D[Action 2]
+    C --> E[End]
+    D --> E
+\`\`\``,
+            sequence: `\`\`\`mermaid
+sequenceDiagram
+    %% ${args.description}
+    participant A as Actor 1
+    participant B as Actor 2
+    A->>B: Request
+    B-->>A: Response
+\`\`\``,
+            classDiagram: `\`\`\`mermaid
+classDiagram
+    %% ${args.description}
+    class ClassName {
+        +attribute: type
+        +method(): returnType
+    }
+\`\`\``,
+            stateDiagram: `\`\`\`mermaid
+stateDiagram-v2
+    %% ${args.description}
+    [*] --> State1
+    State1 --> State2: Event
+    State2 --> [*]
+\`\`\``,
+            erDiagram: `\`\`\`mermaid
+erDiagram
+    %% ${args.description}
+    ENTITY1 ||--o{ ENTITY2 : relationship
+    ENTITY1 {
+        string id PK
+        string name
+    }
+\`\`\``,
+            gantt: `\`\`\`mermaid
+gantt
+    title ${args.description}
+    dateFormat YYYY-MM-DD
+    section Section
+    Task 1: a1, 2024-01-01, 7d
+    Task 2: after a1, 5d
+\`\`\``,
+            pie: `\`\`\`mermaid
+pie showData
+    title ${args.description}
+    "Category A": 40
+    "Category B": 35
+    "Category C": 25
+\`\`\``,
+            mindmap: `\`\`\`mermaid
+mindmap
+    root((${args.description}))
+        Branch 1
+            Sub-topic 1
+            Sub-topic 2
+        Branch 2
+            Sub-topic 3
+\`\`\``,
+            timeline: `\`\`\`mermaid
+timeline
+    title ${args.description}
+    2024-01-01: Event 1
+    2024-02-01: Event 2
+    2024-03-01: Event 3
+\`\`\``,
+          };
+
+          const diagram = templates[args.type] || templates.flowchart;
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Generated ${args.type} diagram template:\n\n${diagram}\n\nModify the diagram content as needed, then use insert_at_cursor or append_to_note to add it to a note.`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // Analyze note structure for diagram generation.
+      tool(
+        "analyze_for_diagram",
+        "Analyze a note's content to suggest what kind of Mermaid diagram would be appropriate and extract structure for diagram generation.",
+        {
+          path: z
+            .string()
+            .optional()
+            .describe("Path to note to analyze (default: active file)"),
+        },
+        async (args) => {
+          const file = args.path
+            ? app.vault.getAbstractFileByPath(args.path)
+            : app.workspace.getActiveFile();
+
+          if (!file || !(file instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: args.path ? `File not found: ${args.path}` : "No active file",
+                },
+              ],
+            };
+          }
+
+          const content = await app.vault.read(file);
+
+          // Analyze content patterns.
+          const analysis = {
+            file: file.path,
+            headingCount: (content.match(/^#+\s/gm) || []).length,
+            listItemCount: (content.match(/^[\s]*[-*]\s/gm) || []).length,
+            hasSteps: /step\s*\d|phase\s*\d|stage\s*\d/i.test(content),
+            hasDates: /\d{4}[-/]\d{2}[-/]\d{2}/.test(content),
+            hasPercentages: /\d+%/.test(content),
+            hasRelationships: /relates to|connects|links|depends/i.test(content),
+            hasStates: /state|status|phase|stage/i.test(content),
+            suggestedDiagrams: [] as string[],
+          };
+
+          // Suggest diagrams based on content.
+          if (analysis.hasSteps) analysis.suggestedDiagrams.push("flowchart");
+          if (analysis.hasDates) analysis.suggestedDiagrams.push("gantt", "timeline");
+          if (analysis.hasPercentages) analysis.suggestedDiagrams.push("pie");
+          if (analysis.hasRelationships) analysis.suggestedDiagrams.push("erDiagram", "classDiagram");
+          if (analysis.hasStates) analysis.suggestedDiagrams.push("stateDiagram");
+          if (analysis.headingCount >= 3) analysis.suggestedDiagrams.push("mindmap");
+
+          if (analysis.suggestedDiagrams.length === 0) {
+            analysis.suggestedDiagrams.push("flowchart", "mindmap");
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(analysis, null, 2),
+              },
+            ],
+          };
+        }
+      ),
+
+      // ===== TEMPLATER INTEGRATION =====
+
+      // List available Templater templates.
+      tool(
+        "list_templates",
+        "List available Templater templates from the templates folder. Requires Templater plugin to be installed.",
+        {
+          folder: z
+            .string()
+            .optional()
+            .describe("Template folder path (default: auto-detect from Templater settings)"),
+        },
+        async (args) => {
+          // Try to get Templater's template folder from its settings.
+          const templaterPlugin = (app as any).plugins?.plugins?.["templater-obsidian"];
+          let templateFolder = args.folder;
+
+          if (!templateFolder && templaterPlugin) {
+            templateFolder = templaterPlugin.settings?.templates_folder || "Templates";
+          }
+          templateFolder = templateFolder || "Templates";
+
+          const folder = app.vault.getAbstractFileByPath(templateFolder);
+          if (!folder || !(folder instanceof TFolder)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Template folder not found: ${templateFolder}. Make sure Templater is installed and configured.`,
+                },
+              ],
+            };
+          }
+
+          const templates: string[] = [];
+          const collectTemplates = (f: TFolder) => {
+            for (const child of f.children) {
+              if (child instanceof TFile && child.extension === "md") {
+                templates.push(child.path);
+              } else if (child instanceof TFolder) {
+                collectTemplates(child);
+              }
+            }
+          };
+          collectTemplates(folder);
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: templates.length > 0
+                  ? `Found ${templates.length} templates in ${templateFolder}:\n\n${templates.join("\n")}`
+                  : `No templates found in ${templateFolder}`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // Apply a Templater template.
+      tool(
+        "apply_template",
+        "Apply a Templater template to create a new note or insert into current note. Requires Templater plugin.",
+        {
+          templatePath: z.string().describe("Path to the template file"),
+          targetPath: z
+            .string()
+            .optional()
+            .describe("Path for new note (if omitted, inserts at cursor in active file)"),
+          openAfterCreate: z
+            .boolean()
+            .optional()
+            .describe("Open the new note after creation (default: true)"),
+        },
+        async (args) => {
+          const templaterPlugin = (app as any).plugins?.plugins?.["templater-obsidian"];
+          if (!templaterPlugin) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Templater plugin is not installed or enabled.",
+                },
+              ],
+            };
+          }
+
+          const templateFile = app.vault.getAbstractFileByPath(args.templatePath);
+          if (!templateFile || !(templateFile instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Template not found: ${args.templatePath}`,
+                },
+              ],
+            };
+          }
+
+          try {
+            if (args.targetPath) {
+              // Create new note from template.
+              await templaterPlugin.templater.create_new_note_from_template(
+                templateFile,
+                app.vault.getAbstractFileByPath(args.targetPath.substring(0, args.targetPath.lastIndexOf("/"))) || app.vault.getRoot(),
+                args.targetPath.split("/").pop()?.replace(".md", "") || "Untitled",
+                args.openAfterCreate !== false
+              );
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Created note from template: ${args.targetPath}`,
+                  },
+                ],
+              };
+            } else {
+              // Insert at cursor.
+              await templaterPlugin.templater.append_template_to_active_file(templateFile);
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Inserted template at cursor: ${args.templatePath}`,
+                  },
+                ],
+              };
+            }
+          } catch (error: any) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Failed to apply template: ${error.message}`,
+                },
+              ],
+            };
+          }
+        }
+      ),
+
+      // ===== TASKS PLUGIN INTEGRATION =====
+
+      // Query tasks from Tasks plugin.
+      tool(
+        "query_tasks",
+        "Query tasks from notes using Obsidian Tasks plugin syntax. Returns matching tasks. Requires Tasks plugin.",
+        {
+          filter: z
+            .enum(["all", "due", "overdue", "today", "upcoming", "completed", "incomplete"])
+            .optional()
+            .describe("Task filter (default: incomplete)"),
+          path: z
+            .string()
+            .optional()
+            .describe("Limit to tasks in this folder or file"),
+          limit: z
+            .number()
+            .optional()
+            .describe("Maximum tasks to return (default: 20)"),
+        },
+        async (args) => {
+          const files = args.path
+            ? app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(args.path!))
+            : app.vault.getMarkdownFiles();
+
+          const taskRegex = /^[\s]*[-*]\s+\[([ xX])\]\s+(.+)$/gm;
+          const tasks: Array<{
+            file: string;
+            line: number;
+            completed: boolean;
+            text: string;
+            due?: string;
+            priority?: string;
+          }> = [];
+
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          for (const file of files) {
+            const content = await app.vault.read(file);
+            const lines = content.split("\n");
+
+            for (let i = 0; i < lines.length; i++) {
+              const match = taskRegex.exec(lines[i]);
+              if (match) {
+                const completed = match[1].toLowerCase() === "x";
+                const text = match[2];
+
+                // Extract due date (📅 YYYY-MM-DD or due:YYYY-MM-DD).
+                const dueMatch = text.match(/(?:📅|due:)\s*(\d{4}-\d{2}-\d{2})/);
+                const due = dueMatch ? dueMatch[1] : undefined;
+
+                // Extract priority.
+                const priorityMatch = text.match(/[⏫🔼🔽⏬]|priority:\s*(high|medium|low)/i);
+                const priority = priorityMatch ? priorityMatch[0] : undefined;
+
+                // Apply filter.
+                const filter = args.filter || "incomplete";
+                let include = true;
+
+                if (filter === "completed") include = completed;
+                else if (filter === "incomplete") include = !completed;
+                else if (filter === "due") include = !!due && !completed;
+                else if (filter === "overdue" && due) {
+                  const dueDate = new Date(due);
+                  include = dueDate < today && !completed;
+                } else if (filter === "today" && due) {
+                  const dueDate = new Date(due);
+                  include = dueDate.getTime() === today.getTime() && !completed;
+                } else if (filter === "upcoming" && due) {
+                  const dueDate = new Date(due);
+                  include = dueDate >= today && !completed;
+                }
+
+                if (include) {
+                  tasks.push({
+                    file: file.path,
+                    line: i + 1,
+                    completed,
+                    text: text.trim(),
+                    due,
+                    priority,
+                  });
+                }
+              }
+              taskRegex.lastIndex = 0;
+            }
+          }
+
+          // Sort by due date.
+          tasks.sort((a, b) => {
+            if (!a.due && !b.due) return 0;
+            if (!a.due) return 1;
+            if (!b.due) return -1;
+            return a.due.localeCompare(b.due);
+          });
+
+          const limited = tasks.slice(0, args.limit || 20);
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: limited.length > 0
+                  ? `Found ${tasks.length} tasks${tasks.length > limited.length ? ` (showing ${limited.length})` : ""}:\n\n${JSON.stringify(limited, null, 2)}`
+                  : "No tasks found matching the filter.",
+              },
+            ],
+          };
+        }
+      ),
+
+      // Create a task.
+      tool(
+        "create_task",
+        "Create a new task in a note. Can include due date, priority, and other Tasks plugin metadata.",
+        {
+          text: z.string().describe("Task description"),
+          path: z.string().describe("Note path to add the task to"),
+          due: z
+            .string()
+            .optional()
+            .describe("Due date in YYYY-MM-DD format"),
+          priority: z
+            .enum(["high", "medium", "low"])
+            .optional()
+            .describe("Task priority"),
+          scheduled: z
+            .string()
+            .optional()
+            .describe("Scheduled date in YYYY-MM-DD format"),
+        },
+        async (args) => {
+          const file = app.vault.getAbstractFileByPath(args.path);
+          if (!file || !(file instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `File not found: ${args.path}`,
+                },
+              ],
+            };
+          }
+
+          // Build task string.
+          let task = `- [ ] ${args.text}`;
+          if (args.priority) {
+            const priorityEmoji = { high: "⏫", medium: "🔼", low: "🔽" }[args.priority];
+            task += ` ${priorityEmoji}`;
+          }
+          if (args.scheduled) task += ` ⏳ ${args.scheduled}`;
+          if (args.due) task += ` 📅 ${args.due}`;
+
+          // Append to file.
+          const content = await app.vault.read(file);
+          await app.vault.modify(file, content + "\n" + task);
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Created task in ${args.path}:\n${task}`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // Toggle task completion.
+      tool(
+        "toggle_task",
+        "Toggle a task's completion status in a note.",
+        {
+          path: z.string().describe("Path to the note containing the task"),
+          line: z.number().describe("Line number of the task (1-indexed)"),
+        },
+        async (args) => {
+          const file = app.vault.getAbstractFileByPath(args.path);
+          if (!file || !(file instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `File not found: ${args.path}`,
+                },
+              ],
+            };
+          }
+
+          const content = await app.vault.read(file);
+          const lines = content.split("\n");
+          const lineIndex = args.line - 1;
+
+          if (lineIndex < 0 || lineIndex >= lines.length) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Invalid line number: ${args.line}`,
+                },
+              ],
+            };
+          }
+
+          const line = lines[lineIndex];
+          const taskMatch = line.match(/^([\s]*[-*]\s+\[)([ xX])(\]\s+.+)$/);
+          if (!taskMatch) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `No task found at line ${args.line}`,
+                },
+              ],
+            };
+          }
+
+          // Toggle completion.
+          const wasCompleted = taskMatch[2].toLowerCase() === "x";
+          const newStatus = wasCompleted ? " " : "x";
+          lines[lineIndex] = `${taskMatch[1]}${newStatus}${taskMatch[3]}`;
+
+          await app.vault.modify(file, lines.join("\n"));
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Task ${wasCompleted ? "uncompleted" : "completed"}: ${lines[lineIndex].trim()}`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // ===== BACKLINK & GRAPH ANALYSIS =====
+
+      // Get backlinks for a note.
+      tool(
+        "get_backlinks",
+        "Get all notes that link to a specific note (backlinks). Useful for understanding how notes are connected.",
+        {
+          path: z
+            .string()
+            .optional()
+            .describe("Path to the note (default: active file)"),
+          includeContent: z
+            .boolean()
+            .optional()
+            .describe("Include the linking context/sentence (default: false)"),
+        },
+        async (args) => {
+          const targetFile = args.path
+            ? app.vault.getAbstractFileByPath(args.path)
+            : app.workspace.getActiveFile();
+
+          if (!targetFile || !(targetFile instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: args.path ? `File not found: ${args.path}` : "No active file",
+                },
+              ],
+            };
+          }
+
+          // Get resolved links from Obsidian's metadata cache.
+          const resolvedLinks = app.metadataCache.resolvedLinks;
+          const backlinks: Array<{
+            file: string;
+            count: number;
+            contexts?: string[];
+          }> = [];
+
+          // Find all files that link to target.
+          for (const [sourcePath, links] of Object.entries(resolvedLinks)) {
+            if (links[targetFile.path]) {
+              const entry: { file: string; count: number; contexts?: string[] } = {
+                file: sourcePath,
+                count: links[targetFile.path],
+              };
+
+              if (args.includeContent) {
+                const sourceFile = app.vault.getAbstractFileByPath(sourcePath);
+                if (sourceFile instanceof TFile) {
+                  const content = await app.vault.read(sourceFile);
+                  const targetName = targetFile.basename;
+                  const linkRegex = new RegExp(`\\[\\[${targetName}(\\|[^\\]]+)?\\]\\]|\\[([^\\]]+)\\]\\([^)]*${targetName}[^)]*\\)`, "gi");
+                  const contexts: string[] = [];
+
+                  const lines = content.split("\n");
+                  for (const line of lines) {
+                    if (linkRegex.test(line)) {
+                      contexts.push(line.trim().slice(0, 150));
+                    }
+                    linkRegex.lastIndex = 0;
+                  }
+                  entry.contexts = contexts.slice(0, 5);
+                }
+              }
+
+              backlinks.push(entry);
+            }
+          }
+
+          // Sort by count.
+          backlinks.sort((a, b) => b.count - a.count);
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: backlinks.length > 0
+                  ? `Found ${backlinks.length} backlinks to ${targetFile.path}:\n\n${JSON.stringify(backlinks, null, 2)}`
+                  : `No backlinks found for ${targetFile.path}`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // Get outgoing links from a note.
+      tool(
+        "get_outgoing_links",
+        "Get all links from a note to other notes (outgoing links/forward links).",
+        {
+          path: z
+            .string()
+            .optional()
+            .describe("Path to the note (default: active file)"),
+          includeUnresolved: z
+            .boolean()
+            .optional()
+            .describe("Include links to non-existent notes (default: false)"),
+        },
+        async (args) => {
+          const file = args.path
+            ? app.vault.getAbstractFileByPath(args.path)
+            : app.workspace.getActiveFile();
+
+          if (!file || !(file instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: args.path ? `File not found: ${args.path}` : "No active file",
+                },
+              ],
+            };
+          }
+
+          const cache = app.metadataCache.getFileCache(file);
+          const links: Array<{
+            target: string;
+            display?: string;
+            resolved: boolean;
+            line?: number;
+          }> = [];
+
+          if (cache?.links) {
+            for (const link of cache.links) {
+              const resolved = app.metadataCache.getFirstLinkpathDest(link.link, file.path);
+              if (resolved || args.includeUnresolved) {
+                links.push({
+                  target: resolved?.path || link.link,
+                  display: link.displayText !== link.link ? link.displayText : undefined,
+                  resolved: !!resolved,
+                  line: link.position.start.line + 1,
+                });
+              }
+            }
+          }
+
+          // Also check embeds.
+          if (cache?.embeds) {
+            for (const embed of cache.embeds) {
+              const resolved = app.metadataCache.getFirstLinkpathDest(embed.link, file.path);
+              if (resolved || args.includeUnresolved) {
+                links.push({
+                  target: resolved?.path || embed.link,
+                  display: `!embed: ${embed.displayText || embed.link}`,
+                  resolved: !!resolved,
+                  line: embed.position.start.line + 1,
+                });
+              }
+            }
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: links.length > 0
+                  ? `Found ${links.length} outgoing links from ${file.path}:\n\n${JSON.stringify(links, null, 2)}`
+                  : `No outgoing links found in ${file.path}`,
+              },
+            ],
+          };
+        }
+      ),
+
+      // Analyze note connections (graph analysis).
+      tool(
+        "analyze_connections",
+        "Analyze the connection structure of a note or the entire vault. Shows most connected notes, orphans, and clusters.",
+        {
+          path: z
+            .string()
+            .optional()
+            .describe("Analyze connections for this note, or entire vault if omitted"),
+          depth: z
+            .number()
+            .optional()
+            .describe("How many link hops to analyze (default: 1)"),
+        },
+        async (args) => {
+          const resolvedLinks = app.metadataCache.resolvedLinks;
+
+          if (args.path) {
+            // Analyze specific note.
+            const file = app.vault.getAbstractFileByPath(args.path);
+            if (!file || !(file instanceof TFile)) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `File not found: ${args.path}`,
+                  },
+                ],
+              };
+            }
+
+            const outgoing = Object.keys(resolvedLinks[args.path] || {});
+            const incoming: string[] = [];
+
+            for (const [source, links] of Object.entries(resolvedLinks)) {
+              if (links[args.path]) incoming.push(source);
+            }
+
+            // Get second-degree connections if depth > 1.
+            const secondDegree = new Set<string>();
+            if ((args.depth || 1) > 1) {
+              for (const linked of [...outgoing, ...incoming]) {
+                for (const secondLink of Object.keys(resolvedLinks[linked] || {})) {
+                  if (secondLink !== args.path && !outgoing.includes(secondLink) && !incoming.includes(secondLink)) {
+                    secondDegree.add(secondLink);
+                  }
+                }
+              }
+            }
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    file: args.path,
+                    outgoingLinks: outgoing.length,
+                    incomingLinks: incoming.length,
+                    totalConnections: new Set([...outgoing, ...incoming]).size,
+                    outgoing: outgoing.slice(0, 20),
+                    incoming: incoming.slice(0, 20),
+                    secondDegreeConnections: args.depth && args.depth > 1 ? Array.from(secondDegree).slice(0, 20) : undefined,
+                  }, null, 2),
+                },
+              ],
+            };
+          } else {
+            // Vault-wide analysis.
+            const noteStats: Record<string, { outgoing: number; incoming: number }> = {};
+
+            // Count outgoing links.
+            for (const [source, links] of Object.entries(resolvedLinks)) {
+              if (!noteStats[source]) noteStats[source] = { outgoing: 0, incoming: 0 };
+              noteStats[source].outgoing = Object.keys(links).length;
+
+              // Count incoming for each target.
+              for (const target of Object.keys(links)) {
+                if (!noteStats[target]) noteStats[target] = { outgoing: 0, incoming: 0 };
+                noteStats[target].incoming++;
+              }
+            }
+
+            // Find most connected and orphans.
+            const entries = Object.entries(noteStats);
+            const mostConnected = entries
+              .map(([path, stats]) => ({ path, total: stats.outgoing + stats.incoming, ...stats }))
+              .sort((a, b) => b.total - a.total)
+              .slice(0, 10);
+
+            const orphans = entries
+              .filter(([_, stats]) => stats.outgoing === 0 && stats.incoming === 0)
+              .map(([path]) => path)
+              .slice(0, 20);
+
+            const markdownFiles = app.vault.getMarkdownFiles();
+            const allOrphans = markdownFiles
+              .filter((f) => !noteStats[f.path] || (noteStats[f.path].outgoing === 0 && noteStats[f.path].incoming === 0))
+              .map((f) => f.path);
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    totalNotes: markdownFiles.length,
+                    notesWithLinks: entries.length,
+                    orphanNotes: allOrphans.length,
+                    mostConnected,
+                    orphanSample: allOrphans.slice(0, 20),
+                  }, null, 2),
+                },
+              ],
+            };
+          }
+        }
+      ),
+
+      // Find unlinked mentions.
+      tool(
+        "find_unlinked_mentions",
+        "Find mentions of a note's name in other notes that are not linked. Useful for discovering potential connections.",
+        {
+          path: z
+            .string()
+            .optional()
+            .describe("Path to the note (default: active file)"),
+          limit: z
+            .number()
+            .optional()
+            .describe("Maximum number of results (default: 20)"),
+        },
+        async (args) => {
+          const targetFile = args.path
+            ? app.vault.getAbstractFileByPath(args.path)
+            : app.workspace.getActiveFile();
+
+          if (!targetFile || !(targetFile instanceof TFile)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: args.path ? `File not found: ${args.path}` : "No active file",
+                },
+              ],
+            };
+          }
+
+          const targetName = targetFile.basename;
+          const resolvedLinks = app.metadataCache.resolvedLinks;
+          const mentions: Array<{ file: string; line: number; context: string }> = [];
+
+          // Search all markdown files.
+          const files = app.vault.getMarkdownFiles().filter((f) => f.path !== targetFile.path);
+
+          for (const file of files) {
+            // Skip if already linked.
+            if (resolvedLinks[file.path]?.[targetFile.path]) continue;
+
+            const content = await app.vault.read(file);
+            const lines = content.split("\n");
+
+            // Case-insensitive search for the note name.
+            const regex = new RegExp(`\\b${targetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "i");
+
+            for (let i = 0; i < lines.length; i++) {
+              // Skip if it's already a link to this note.
+              if (lines[i].includes(`[[${targetName}`) || lines[i].includes(`](${targetFile.path}`)) continue;
+
+              if (regex.test(lines[i])) {
+                mentions.push({
+                  file: file.path,
+                  line: i + 1,
+                  context: lines[i].trim().slice(0, 150),
+                });
+
+                if (mentions.length >= (args.limit || 20)) break;
+              }
+            }
+
+            if (mentions.length >= (args.limit || 20)) break;
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: mentions.length > 0
+                  ? `Found ${mentions.length} unlinked mentions of "${targetName}":\n\n${JSON.stringify(mentions, null, 2)}`
+                  : `No unlinked mentions found for "${targetName}"`,
+              },
+            ],
+          };
+        }
+      ),
     ],
   });
 }
