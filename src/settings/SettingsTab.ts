@@ -1,5 +1,6 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import type ClaudeCodePlugin from "../main";
+import { SkillManager, SKILL_PRESETS, type Skill } from "../skills/SkillManager";
 
 export class ClaudeCodeSettingTab extends PluginSettingTab {
   plugin: ClaudeCodePlugin;
@@ -10,6 +11,10 @@ export class ClaudeCodeSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.displayAsync();
+  }
+
+  async displayAsync(): Promise<void> {
     const { containerEl } = this;
     containerEl.empty();
 
@@ -204,6 +209,15 @@ export class ClaudeCodeSettingTab extends PluginSettingTab {
           })
       );
 
+    // Skills Section.
+    containerEl.createEl("h3", { text: "Skills" });
+    containerEl.createEl("p", {
+      text: "Skills are reusable prompts that extend Claude's capabilities. They are stored in .claude/skills/ in your vault.",
+      cls: "setting-item-description",
+    });
+
+    await this.renderSkillsSection(containerEl);
+
     // RAG Settings Section.
     containerEl.createEl("h3", { text: "RAG (Semantic Search)" });
 
@@ -376,5 +390,109 @@ export class ClaudeCodeSettingTab extends PluginSettingTab {
     aboutEl.createEl("p", {
       text: "Features: Built-in tools (Read, Write, Bash, Grep), skill loading from .claude/skills/, Obsidian-specific tools (open files, run commands), and semantic vault search.",
     });
+  }
+
+  private async renderSkillsSection(containerEl: HTMLElement): Promise<void> {
+    const skillManager = new SkillManager(this.app);
+    const skills = await skillManager.listSkills();
+
+    // Installed skills list.
+    if (skills.length > 0) {
+      const skillsListEl = containerEl.createDiv({ cls: "claude-code-skills-list" });
+      skillsListEl.createEl("h4", { text: "Installed Skills" });
+
+      for (const skill of skills) {
+        const skillItem = skillsListEl.createDiv({ cls: "claude-code-skill-item" });
+
+        const skillInfo = skillItem.createDiv({ cls: "claude-code-skill-info" });
+        skillInfo.createEl("span", { text: skill.name, cls: "claude-code-skill-name" });
+        if (skill.description) {
+          skillInfo.createEl("span", { text: skill.description, cls: "claude-code-skill-desc" });
+        }
+
+        const deleteBtn = skillItem.createEl("button", {
+          text: "Delete",
+          cls: "claude-code-skill-delete",
+        });
+        deleteBtn.addEventListener("click", async () => {
+          if (await skillManager.deleteSkill(skill.filename)) {
+            new Notice(`Deleted skill: ${skill.name}`);
+            this.display();
+          } else {
+            new Notice(`Failed to delete skill: ${skill.name}`);
+          }
+        });
+      }
+    } else {
+      containerEl.createEl("p", {
+        text: "No skills installed. Install from a preset or add a URL below.",
+        cls: "setting-item-description mod-warning",
+      });
+    }
+
+    // Install from URL.
+    let urlInput: HTMLInputElement | null = null;
+    new Setting(containerEl)
+      .setName("Install from URL")
+      .setDesc("Install a skill from a GitHub URL (raw or blob)")
+      .addText((text) => {
+        text.setPlaceholder("https://github.com/user/repo/blob/main/skill.md");
+        text.inputEl.style.width = "300px";
+        urlInput = text.inputEl;
+        return text;
+      })
+      .addButton((button) =>
+        button.setButtonText("Install from URL").onClick(async () => {
+          if (!urlInput?.value) {
+            new Notice("Please enter a URL");
+            return;
+          }
+
+          button.setDisabled(true);
+          const result = await skillManager.installFromUrl(urlInput.value);
+          button.setDisabled(false);
+
+          if (result.success) {
+            new Notice(`Installed skill: ${result.filename}`);
+            urlInput.value = "";
+            this.display();
+          } else {
+            new Notice(`Failed to install: ${result.error}`);
+          }
+        })
+      );
+
+    // Preset skills.
+    const presetsEl = containerEl.createDiv({ cls: "claude-code-skill-presets" });
+    presetsEl.createEl("h4", { text: "Skill Presets" });
+    presetsEl.createEl("p", {
+      text: "Install curated skill collections from the community.",
+      cls: "setting-item-description",
+    });
+
+    for (const preset of SKILL_PRESETS) {
+      new Setting(presetsEl)
+        .setName(preset.name)
+        .setDesc(`${preset.description} (${preset.files.length} skills)`)
+        .addButton((button) =>
+          button.setButtonText("Install Preset").onClick(async () => {
+            button.setDisabled(true);
+            button.setButtonText("Installing...");
+
+            const result = await skillManager.installPreset(preset);
+
+            if (result.success > 0) {
+              new Notice(`Installed ${result.success} skills from ${preset.name}`);
+            }
+            if (result.failed > 0) {
+              new Notice(`Failed to install ${result.failed} skills: ${result.errors.join(", ")}`);
+            }
+
+            button.setDisabled(false);
+            button.setButtonText("Install");
+            this.display();
+          })
+        );
+    }
   }
 }
